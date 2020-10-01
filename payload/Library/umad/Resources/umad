@@ -16,7 +16,7 @@ import tempfile
 import time
 import urllib.request, urllib.parse, urllib.error
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from distutils.version import LooseVersion
 from urllib.parse import urlparse, unquote
 import Foundation
@@ -122,6 +122,8 @@ def check_mdm_status(umadupdate):
         if check_mdm_status_modern()[2]:
             umadlog('MDM enrolled device %s' % get_os_version())
             uamdm_enrolled = True
+            if os.path.exists(autocutoff):
+                os.remove(autocutoff)
             if umadupdate:
                 umad.quit()
         else:
@@ -140,6 +142,8 @@ def check_mdm_status(umadupdate):
         if check_mdm_legacy(mdm_profile_identifier):
             mdm_enrolled = True
             umadlog('MDM enrolled device %s' % get_os_version())
+            if os.path.exists(autocutoff):
+                os.remove(autocutoff)
             if umadupdate:
                 umad.quit()
     return uamdm_enrolled, mdm_enrolled
@@ -684,6 +688,7 @@ def main():
     global manualenroll_h2_text
 
     cutoffdate = umad_prefs.get('cut_off_date', False)
+    autocutoffdelay = umad_prefs.get('auto_cut_off_delay', False)
     cutoffdatewarning = umad_prefs.get('cut_off_date_warning', 3)
     depfailuretext = umad_prefs.get('dep_failure_text',
         'Not getting this notification?')
@@ -767,15 +772,29 @@ def main():
     if not mdm_profile_set:
         umadlog('WARN - Did not set mdm profile identifier!')
 
+    # Get the current username
+    user_name, current_user_uid, _ = get_console_username_info()
+
+    app_support_dir = os.path.join('/Users', user_name, 'Library/Application Support/umad')
+    if not os.path.exists(app_support_dir):
+        os.makedirs(app_support_dir)
+
+    global autocutoff
+    autocutoff = os.path.join(app_support_dir, 'autocutoff')
+
     # Check the OS and run our dep checks based on OS version
     mdm_status = check_mdm_status(False)
     uamdm_enrolled = mdm_status[0]
     mdm_enrolled = mdm_status[1]
 
     if uamdm_enrolled:
+        if os.path.exists(autocutoff):
+            os.remove(autocutoff)
         exit(0)
     elif get_os_version() < LooseVersion('10.13.4'):
         if mdm_enrolled:
+            if os.path.exists(autocutoff):
+                os.remove(autocutoff)
             exit(0)
 
     # If we get here, device is not MDM enrolled or device is 10.13.4+
@@ -798,9 +817,6 @@ def main():
 
     # Attempt to load our umad globals
     load_umad_globals()
-
-    # Get the current username
-    user_name, current_user_uid, _ = get_console_username_info()
 
     # Bail if we are not in a user session.
     if user_name in (None, 'loginwindow', '_mbsetupuser'):
@@ -953,6 +969,31 @@ def main():
     umad.views['field.username'].setStringValue_(str(user_name))
     umad.views['field.serialnumber'].setStringValue_(str(get_serial()))
     umad.views['field.mdmenrolled'].setStringValue_('No')
+
+    if autocutoffdelay:
+        # Read date from breadcumb or create new if doesn't exist
+        autocutoff_date = ""
+
+        if os.path.exists(autocutoff):
+            try:
+                with open(autocutoff, "r") as file:
+                    timestamp = float(file.read())
+                    autocutoff_date = datetime.fromtimestamp(timestamp, timezone.utc)
+            except:  # noqa
+                pass
+        
+        if not autocutoff_date:
+            autocutoff_date = datetime.now(timezone.utc)
+            try:
+                with open(autocutoff, "w") as file:
+                    file.write(str(autocutoff_date.timestamp()))
+            except:  # noqa
+                pass
+
+        # Calculate cutoffdate from breadcrumb date and autocutoffdelay
+        cutoff_date = autocutoff_date + timedelta(days=autocutoffdelay)
+        cutoffdate = cutoff_date.strftime('%Y-%m-%d-%H:%M')
+
     if cutoffdate:
         todays_date = datetime.utcnow()
         cutoff_date = datetime.strptime(cutoffdate, '%Y-%m-%d-%H:%M')

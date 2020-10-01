@@ -101,8 +101,21 @@ If you prefer to deploy the configuration file to each client locally, it needs 
 ## Preferences
 A description of each preference is listed below.
 
+### Auto cutoff delay
+This is the number, in days, of when to set the cut off date from the first time a lack of MDM enrollment is detected.
+
+e.g. If this value is set to 5, and no MDM profile is found on 1st Jan, the cut off date will be set 5 days after, on the 5th Jan.
+
+If this key is set, `cut_off_date` will be ignored.
+
+```json
+"auto_cut_off_delay": 5
+```
+
 ### Cutoff date
 Cut off date in UTC.
+
+This key will be ignored if `auto_cut_off_delay` is set.
 
 ```json
 "cut_off_date": "2018-12-31-00:00"
